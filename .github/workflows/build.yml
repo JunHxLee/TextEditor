@@ -20,20 +20,13 @@ jobs:
         with:
           java-version: '17'
           distribution: 'temurin'
+          cache: gradle
 
-      - name: Android SDK 설정
-        uses: android-actions/setup-android@v3
+      - name: Android SDK 경로 설정
+        run: echo "sdk.dir=$ANDROID_HOME" > local.properties
 
-      - name: Gradle 설치 및 Wrapper 생성
-        uses: gradle/actions/setup-gradle@v3
-        with:
-          gradle-version: '8.2.1'
-
-      - name: Gradle Wrapper 생성
-        run: |
-          gradle wrapper --gradle-version=8.2.1 --distribution-type=bin
-          chmod +x ./gradlew
-          ls -la gradle/wrapper/
+      - name: gradlew 실행 권한 부여
+        run: chmod +x ./gradlew
 
       - name: APK 빌드 (Debug)
         run: ./gradlew assembleDebug --stacktrace --no-daemon
