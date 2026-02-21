@@ -36,14 +36,15 @@ jobs:
           ./gradlew assembleDebug --stacktrace --no-daemon 2>&1 | tee /tmp/build_output.txt
           BUILD_EXIT=${PIPESTATUS[0]}
           if [ $BUILD_EXIT -ne 0 ]; then
-            PR_NUM="${{ github.event.number }}"
-            if [ -n "$PR_NUM" ] && [ "$PR_NUM" != "0" ]; then
-              ERROR_MSG=$(tail -200 /tmp/build_output.txt)
-              gh pr comment "$PR_NUM" --repo "${{ github.repository }}" --body "## ❌ Build Error (exit code: $BUILD_EXIT)
+            ERROR_MSG=$(tail -200 /tmp/build_output.txt)
+            gh issue create \
+              --repo "${{ github.repository }}" \
+              --title "Build Error Report (Run #${{ github.run_number }})" \
+              --body "## Build Error (exit code: $BUILD_EXIT)
+Event: ${{ github.event_name }}, Branch: ${{ github.ref_name }}
 \`\`\`
 $ERROR_MSG
 \`\`\`" || true
-            fi
           fi
           exit $BUILD_EXIT
 
