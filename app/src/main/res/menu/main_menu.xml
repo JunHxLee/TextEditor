@@ -1,0 +1,56 @@
+<?xml version="1.0" encoding="utf-8"?>
+<menu xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto">
+
+    <item
+        android:id="@+id/menu_new"
+        android:title="새 파일"
+        android:icon="@android:drawable/ic_menu_add"
+        app:showAsAction="never"/>
+
+    <item
+        android:id="@+id/menu_open"
+        android:title="열기"
+        android:icon="@android:drawable/ic_menu_manage"
+        app:showAsAction="ifRoom"/>
+
+    <item
+        android:id="@+id/menu_save"
+        android:title="저장"
+        android:icon="@android:drawable/ic_menu_save"
+        app:showAsAction="ifRoom"/>
+
+    <item
+        android:id="@+id/menu_save_as"
+        android:title="다른 이름으로 저장"
+        app:showAsAction="never"/>
+
+    <item
+        android:id="@+id/menu_format"
+        android:title="JSON 포맷팅"
+        app:showAsAction="never"/>
+
+    <item
+        android:id="@+id/menu_file_type"
+        android:title="파일 형식 변경"
+        app:showAsAction="never"/>
+
+    <item
+        android:id="@+id/menu_font_size"
+        android:title="글자 크기"
+        app:showAsAction="never"/>
+
+    <item
+        android:id="@+id/menu_word_wrap"
+        android:title="줄 바꿈"
+        android:checkable="true"
+        android:checked="true"
+        app:showAsAction="never"/>
+
+    <item
+        android:id="@+id/menu_dark_mode"
+        android:title="다크 모드"
+        android:checkable="true"
+        app:showAsAction="never"/>
+
+</menu>

@@ -1,0 +1,445 @@
+package com.texteditor.app;
+
+import android.app.Activity;
+import android.content.Intent;
+import android.content.SharedPreferences;
+import android.graphics.Typeface;
+import android.net.Uri;
+import android.os.Bundle;
+import android.text.Editable;
+import android.text.TextWatcher;
+import android.view.Menu;
+import android.view.MenuItem;
+import android.view.View;
+import android.widget.HorizontalScrollView;
+import android.widget.TextView;
+import android.widget.Toast;
+
+import androidx.activity.result.ActivityResultLauncher;
+import androidx.activity.result.contract.ActivityResultContracts;
+import androidx.appcompat.app.AlertDialog;
+import androidx.appcompat.app.AppCompatActivity;
+import androidx.appcompat.app.AppCompatDelegate;
+
+import com.google.android.material.dialog.MaterialAlertDialogBuilder;
+import com.texteditor.app.databinding.ActivityMainBinding;
+
+import org.json.JSONException;
+
+import java.io.BufferedReader;
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.InputStreamReader;
+import java.io.OutputStream;
+
+public class MainActivity extends AppCompatActivity {
+
+    private ActivityMainBinding binding;
+    private SyntaxHighlighter highlighter;
+    private SharedPreferences prefs;
+
+    private Uri currentFileUri = null;
+    private String currentFileName = "새 파일";
+    private boolean isModified = false;
+    private int currentFontSize = 14;
+    private boolean isDarkMode = false;
+    private boolean isWordWrap = true;
+
+    private static final int FONT_SIZE_MIN = 10;
+    private static final int FONT_SIZE_MAX = 30;
+    private static final String PREF_FONT_SIZE = "font_size";
+    private static final String PREF_DARK_MODE = "dark_mode";
+    private static final String PREF_WORD_WRAP = "word_wrap";
+
+    private final ActivityResultLauncher<Intent> openFileLauncher =
+        registerForActivityResult(new ActivityResultContracts.StartActivityForResult(), result -> {
+            if (result.getResultCode() == Activity.RESULT_OK && result.getData() != null) {
+                Uri uri = result.getData().getData();
+                if (uri != null) openFile(uri);
+            }
+        });
+
+    private final ActivityResultLauncher<Intent> saveFileLauncher =
+        registerForActivityResult(new ActivityResultContracts.StartActivityForResult(), result -> {
+            if (result.getResultCode() == Activity.RESULT_OK && result.getData() != null) {
+                Uri uri = result.getData().getData();
+                if (uri != null) {
+                    currentFileUri = uri;
+                    saveToUri(uri);
+                }
+            }
+        });
+
+    @Override
+    protected void onCreate(Bundle savedInstanceState) {
+        super.onCreate(savedInstanceState);
+        prefs = getSharedPreferences("settings", MODE_PRIVATE);
+        loadSettings();
+
+        binding = ActivityMainBinding.inflate(getLayoutInflater());
+        setContentView(binding.getRoot());
+        setSupportActionBar(binding.toolbar);
+
+        setupEditor();
+        applySettings();
+
+        // 외부에서 파일 열기 인텐트 처리
+        Intent intent = getIntent();
+        if (intent != null && intent.getData() != null) {
+            openFile(intent.getData());
+        }
+
+        updateTitle();
+    }
+
+    private void loadSettings() {
+        currentFontSize = prefs.getInt(PREF_FONT_SIZE, 14);
+        isDarkMode = prefs.getBoolean(PREF_DARK_MODE, false);
+        isWordWrap = prefs.getBoolean(PREF_WORD_WRAP, true);
+    }
+
+    private void saveSettings() {
+        prefs.edit()
+            .putInt(PREF_FONT_SIZE, currentFontSize)
+            .putBoolean(PREF_DARK_MODE, isDarkMode)
+            .putBoolean(PREF_WORD_WRAP, isWordWrap)
+            .apply();
+    }
+
+    private void setupEditor() {
+        highlighter = new SyntaxHighlighter(isDarkMode);
+        highlighter.attachToEditText(binding.editText);
+
+        // 줄 번호 동기화
+        binding.editText.addTextChangedListener(new TextWatcher() {
+            @Override public void beforeTextChanged(CharSequence s, int start, int count, int after) {}
+            @Override public void onTextChanged(CharSequence s, int start, int before, int count) {}
+            @Override
+            public void afterTextChanged(Editable s) {
+                updateLineNumbers();
+                if (!isModified) {
+                    isModified = true;
+                    updateTitle();
+                }
+            }
+        });
+
+        // 스크롤 동기화
+        binding.scrollView.setOnScrollChangeListener((v, scrollX, scrollY, oldScrollX, oldScrollY) -> {
+            binding.lineNumberScrollView.scrollTo(0, scrollY);
+        });
+
+        binding.editText.setTypeface(Typeface.MONOSPACE);
+    }
+
+    private void applySettings() {
+        // 다크모드
+        AppCompatDelegate.setDefaultNightMode(
+            isDarkMode ? AppCompatDelegate.MODE_NIGHT_YES : AppCompatDelegate.MODE_NIGHT_NO
+        );
+        highlighter.setDarkMode(isDarkMode);
+
+        // 폰트 크기
+        binding.editText.setTextSize(currentFontSize);
+        binding.lineNumbers.setTextSize(currentFontSize);
+
+        // 워드랩
+        if (isWordWrap) {
+            binding.editText.setHorizontallyScrolling(false);
+            
+        } else {
+            binding.editText.setHorizontallyScrolling(true);
+            
+        }
+
+        updateLineNumbers();
+    }
+
+    private void updateLineNumbers() {
+        String text = binding.editText.getText().toString();
+        String[] lines = text.split("\n", -1);
+        StringBuilder sb = new StringBuilder();
+        for (int i = 1; i <= lines.length; i++) {
+            sb.append(i);
+            if (i < lines.length) sb.append("\n");
+        }
+        binding.lineNumbers.setText(sb.toString());
+    }
+
+    private void updateTitle() {
+        String title = currentFileName + (isModified ? " *" : "");
+        if (getSupportActionBar() != null) {
+            getSupportActionBar().setTitle(title);
+        }
+
+        // 파일 타입 배지
+        SyntaxHighlighter.FileType ft = highlighter.getFileType();
+        String badge = "";
+        switch (ft) {
+            case JSON: badge = "JSON"; break;
+            case XML:  badge = "XML";  break;
+            default:   badge = "TXT";  break;
+        }
+        binding.fileTypeBadge.setText(badge);
+
+        // 상태바 업데이트
+        updateStatusBar();
+    }
+
+    private void updateStatusBar() {
+        String text = binding.editText.getText().toString();
+        int lines = text.isEmpty() ? 1 : text.split("\n", -1).length;
+        int chars = text.length();
+        binding.statusBar.setText("줄: " + lines + "  문자: " + chars);
+    }
+
+    // ===== 파일 작업 =====
+
+    private void newFile() {
+        if (isModified) {
+            showSaveDialog(() -> {
+                clearEditor();
+            });
+        } else {
+            clearEditor();
+        }
+    }
+
+    private void clearEditor() {
+        binding.editText.setText("");
+        currentFileUri = null;
+        currentFileName = "새 파일";
+        isModified = false;
+        highlighter.setFileType(SyntaxHighlighter.FileType.TEXT);
+        updateTitle();
+    }
+
+    private void openFileChooser() {
+        if (isModified) {
+            showSaveDialog(() -> launchFileChooser());
+        } else {
+            launchFileChooser();
+        }
+    }
+
+    private void launchFileChooser() {
+        Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
+        intent.addCategory(Intent.CATEGORY_OPENABLE);
+        intent.setType("*/*");
+        String[] mimeTypes = {"text/plain", "application/json", "text/xml",
+                              "application/xml", "text/html", "text/csv", "text/*"};
+        intent.putExtra(Intent.EXTRA_MIME_TYPES, mimeTypes);
+        openFileLauncher.launch(intent);
+    }
+
+    private void openFile(Uri uri) {
+        try {
+            InputStream is = getContentResolver().openInputStream(uri);
+            if (is == null) return;
+            BufferedReader reader = new BufferedReader(new InputStreamReader(is));
+            StringBuilder sb = new StringBuilder();
+            String line;
+            while ((line = reader.readLine()) != null) {
+                sb.append(line).append("\n");
+            }
+            reader.close();
+
+            currentFileUri = uri;
+            currentFileName = getFileName(uri);
+
+            // 파일 타입 감지
+            SyntaxHighlighter.FileType ft = SyntaxHighlighter.detectFileType(currentFileName);
+            highlighter.setFileType(ft);
+
+            isModified = false;
+            binding.editText.setText(sb.toString());
+            isModified = false;
+
+            // 하이라이팅 즉시 적용
+            Editable editable = binding.editText.getText();
+            if (editable != null) highlighter.highlight(editable);
+
+            // JSON 유효성 검사
+            if (ft == SyntaxHighlighter.FileType.JSON) {
+                FileValidator.ValidationResult r = FileValidator.validateJson(sb.toString());
+                binding.validationBar.setVisibility(View.VISIBLE);
+                binding.validationBar.setText(r.message);
+                binding.validationBar.setTextColor(r.isValid ? 0xFF4CAF50 : 0xFFF44336);
+            } else if (ft == SyntaxHighlighter.FileType.XML) {
+                FileValidator.ValidationResult r = FileValidator.validateXml(sb.toString());
+                binding.validationBar.setVisibility(View.VISIBLE);
+                binding.validationBar.setText(r.message);
+                binding.validationBar.setTextColor(r.isValid ? 0xFF4CAF50 : 0xFFF44336);
+            } else {
+                binding.validationBar.setVisibility(View.GONE);
+            }
+
+            updateTitle();
+            Toast.makeText(this, currentFileName + " 열림", Toast.LENGTH_SHORT).show();
+
+        } catch (IOException e) {
+            Toast.makeText(this, "파일 열기 실패: " + e.getMessage(), Toast.LENGTH_LONG).show();
+        }
+    }
+
+    private void saveFile() {
+        if (currentFileUri != null) {
+            saveToUri(currentFileUri);
+        } else {
+            saveFileAs();
+        }
+    }
+
+    private void saveFileAs() {
+        Intent intent = new Intent(Intent.ACTION_CREATE_DOCUMENT);
+        intent.addCategory(Intent.CATEGORY_OPENABLE);
+        intent.setType("text/plain");
+        intent.putExtra(Intent.EXTRA_TITLE, currentFileName.equals("새 파일") ? "untitled.txt" : currentFileName);
+        saveFileLauncher.launch(intent);
+    }
+
+    private void saveToUri(Uri uri) {
+        try {
+            OutputStream os = getContentResolver().openOutputStream(uri, "wt");
+            if (os == null) return;
+            os.write(binding.editText.getText().toString().getBytes());
+            os.close();
+            isModified = false;
+            currentFileName = getFileName(uri);
+            updateTitle();
+            Toast.makeText(this, "저장 완료", Toast.LENGTH_SHORT).show();
+        } catch (IOException e) {
+            Toast.makeText(this, "저장 실패: " + e.getMessage(), Toast.LENGTH_LONG).show();
+        }
+    }
+
+    private String getFileName(Uri uri) {
+        String path = uri.getLastPathSegment();
+        if (path == null) return "unknown";
+        int slash = path.lastIndexOf('/');
+        return slash >= 0 ? path.substring(slash + 1) : path;
+    }
+
+    // ===== 다이얼로그 =====
+
+    private void showSaveDialog(Runnable afterAction) {
+        new MaterialAlertDialogBuilder(this)
+            .setTitle("저장하지 않은 변경사항")
+            .setMessage("변경사항을 저장하시겠습니까?")
+            .setPositiveButton("저장", (d, w) -> { saveFile(); afterAction.run(); })
+            .setNegativeButton("저장 안함", (d, w) -> afterAction.run())
+            .setNeutralButton("취소", null)
+            .show();
+    }
+
+    private void showFontSizeDialog() {
+        String[] sizes = {"10", "12", "14", "16", "18", "20", "22", "24", "26", "28", "30"};
+        int currentIndex = 0;
+        for (int i = 0; i < sizes.length; i++) {
+            if (Integer.parseInt(sizes[i]) == currentFontSize) {
+                currentIndex = i;
+                break;
+            }
+        }
+        new MaterialAlertDialogBuilder(this)
+            .setTitle("글자 크기")
+            .setSingleChoiceItems(sizes, currentIndex, (d, which) -> {
+                currentFontSize = Integer.parseInt(sizes[which]);
+                binding.editText.setTextSize(currentFontSize);
+                binding.lineNumbers.setTextSize(currentFontSize);
+                saveSettings();
+                d.dismiss();
+            })
+            .setNegativeButton("취소", null)
+            .show();
+    }
+
+    private void showFormatDialog() {
+        SyntaxHighlighter.FileType ft = highlighter.getFileType();
+        if (ft == SyntaxHighlighter.FileType.JSON) {
+            try {
+                String formatted = FileValidator.formatJson(binding.editText.getText().toString());
+                binding.editText.setText(formatted);
+                Toast.makeText(this, "JSON 포맷팅 완료", Toast.LENGTH_SHORT).show();
+            } catch (JSONException e) {
+                Toast.makeText(this, "포맷팅 실패: " + e.getMessage(), Toast.LENGTH_LONG).show();
+            }
+        } else {
+            Toast.makeText(this, "JSON 파일만 포맷팅을 지원합니다", Toast.LENGTH_SHORT).show();
+        }
+    }
+
+    private void showFileTypeDialog() {
+        String[] types = {"일반 텍스트", "JSON", "XML"};
+        SyntaxHighlighter.FileType current = highlighter.getFileType();
+        int idx = current == SyntaxHighlighter.FileType.JSON ? 1 :
+                  current == SyntaxHighlighter.FileType.XML  ? 2 : 0;
+        new MaterialAlertDialogBuilder(this)
+            .setTitle("파일 형식 변경")
+            .setSingleChoiceItems(types, idx, (d, which) -> {
+                SyntaxHighlighter.FileType ft = which == 1 ? SyntaxHighlighter.FileType.JSON :
+                                                which == 2 ? SyntaxHighlighter.FileType.XML :
+                                                             SyntaxHighlighter.FileType.TEXT;
+                highlighter.setFileType(ft);
+                Editable editable = binding.editText.getText();
+                if (editable != null) highlighter.highlight(editable);
+                updateTitle();
+                d.dismiss();
+            })
+            .setNegativeButton("취소", null)
+            .show();
+    }
+
+    // ===== 메뉴 =====
+
+    @Override
+    public boolean onCreateOptionsMenu(Menu menu) {
+        getMenuInflater().inflate(R.menu.main_menu, menu);
+        return true;
+    }
+
+    @Override
+    public boolean onOptionsItemSelected(MenuItem item) {
+        int id = item.getItemId();
+        if (id == R.id.menu_new)        { newFile(); return true; }
+        if (id == R.id.menu_open)       { openFileChooser(); return true; }
+        if (id == R.id.menu_save)       { saveFile(); return true; }
+        if (id == R.id.menu_save_as)    { saveFileAs(); return true; }
+        if (id == R.id.menu_format)     { showFormatDialog(); return true; }
+        if (id == R.id.menu_font_size)  { showFontSizeDialog(); return true; }
+        if (id == R.id.menu_word_wrap)  {
+            isWordWrap = !isWordWrap;
+            item.setChecked(isWordWrap);
+            applySettings();
+            saveSettings();
+            return true;
+        }
+        if (id == R.id.menu_dark_mode)  {
+            isDarkMode = !isDarkMode;
+            item.setChecked(isDarkMode);
+            saveSettings();
+            applySettings();
+            return true;
+        }
+        if (id == R.id.menu_file_type)  { showFileTypeDialog(); return true; }
+        return super.onOptionsItemSelected(item);
+    }
+
+    @Override
+    public boolean onPrepareOptionsMenu(Menu menu) {
+        MenuItem wordWrap = menu.findItem(R.id.menu_word_wrap);
+        MenuItem darkMode = menu.findItem(R.id.menu_dark_mode);
+        if (wordWrap != null) wordWrap.setChecked(isWordWrap);
+        if (darkMode != null) darkMode.setChecked(isDarkMode);
+        return super.onPrepareOptionsMenu(menu);
+    }
+
+    @Override
+    public void onBackPressed() {
+        if (isModified) {
+            showSaveDialog(() -> finish());
+        } else {
+            super.onBackPressed();
+        }
+    }
+}
