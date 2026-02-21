@@ -55,7 +55,117 @@
                 android:layout_height="wrap_content"
                 android:textSize="11sp"
                 android:textColor="?android:attr/textColorSecondary"
-                android:text="줄: 1  문자: 0"/>
+                android:text="줄: 1  열: 1  문자: 0"/>
+        </LinearLayout>
+
+        <!-- 찾기/바꾸기 바 -->
+        <LinearLayout
+            android:id="@+id/findReplaceBar"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:background="?attr/colorSurface"
+            android:paddingLeft="8dp"
+            android:paddingRight="8dp"
+            android:paddingBottom="4dp"
+            android:visibility="gone">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical">
+
+                <EditText
+                    android:id="@+id/findInput"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:hint="찾기..."
+                    android:textSize="13sp"
+                    android:singleLine="true"
+                    android:imeOptions="actionSearch"
+                    android:inputType="text"
+                    android:paddingTop="4dp"
+                    android:paddingBottom="4dp"/>
+
+                <TextView
+                    android:id="@+id/findMatchCount"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:textSize="11sp"
+                    android:paddingLeft="4dp"
+                    android:paddingRight="4dp"
+                    android:textColor="?android:attr/textColorSecondary"
+                    android:text=""/>
+
+                <Button
+                    android:id="@+id/findPrevBtn"
+                    android:layout_width="36dp"
+                    android:layout_height="36dp"
+                    android:text="▲"
+                    android:textSize="12sp"
+                    android:padding="0dp"
+                    style="@style/Widget.MaterialComponents.Button.TextButton"/>
+
+                <Button
+                    android:id="@+id/findNextBtn"
+                    android:layout_width="36dp"
+                    android:layout_height="36dp"
+                    android:text="▼"
+                    android:textSize="12sp"
+                    android:padding="0dp"
+                    style="@style/Widget.MaterialComponents.Button.TextButton"/>
+
+                <Button
+                    android:id="@+id/findCloseBtn"
+                    android:layout_width="36dp"
+                    android:layout_height="36dp"
+                    android:text="✕"
+                    android:textSize="12sp"
+                    android:padding="0dp"
+                    style="@style/Widget.MaterialComponents.Button.TextButton"/>
+
+            </LinearLayout>
+
+            <LinearLayout
+                android:id="@+id/replaceRow"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical"
+                android:visibility="gone">
+
+                <EditText
+                    android:id="@+id/replaceInput"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:hint="바꾸기..."
+                    android:textSize="13sp"
+                    android:singleLine="true"
+                    android:inputType="text"
+                    android:paddingTop="4dp"
+                    android:paddingBottom="4dp"/>
+
+                <Button
+                    android:id="@+id/replaceBtn"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="바꾸기"
+                    android:textSize="12sp"
+                    style="@style/Widget.MaterialComponents.Button.TextButton"/>
+
+                <Button
+                    android:id="@+id/replaceAllBtn"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="모두 바꾸기"
+                    android:textSize="12sp"
+                    style="@style/Widget.MaterialComponents.Button.TextButton"/>
+
+            </LinearLayout>
+
         </LinearLayout>
 
     </com.google.android.material.appbar.AppBarLayout>
@@ -91,45 +201,26 @@
 
         </ScrollView>
 
-        <!-- 메인 에디터: ScrollView > EditText (워드랩 모드) -->
+        <!-- 메인 에디터 -->
         <ScrollView
             android:id="@+id/scrollView"
             android:layout_width="match_parent"
             android:layout_height="match_parent"
             android:fillViewport="true">
 
-            <LinearLayout
+            <EditText
+                android:id="@+id/editText"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:orientation="vertical">
-
-                <!-- 워드랩 OFF 시 가로스크롤 컨테이너 표시 -->
-                <HorizontalScrollView
-                    android:id="@+id/horizontalScrollView"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:fillViewport="true"
-                    android:visibility="gone">
-
-                    <TextView android:layout_width="0dp" android:layout_height="0dp"/>
-
-                </HorizontalScrollView>
-
-                <EditText
-                    android:id="@+id/editText"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:background="@null"
-                    android:fontFamily="monospace"
-                    android:gravity="top|start"
-                    android:hint="여기에 텍스트를 입력하세요..."
-                    android:imeOptions="flagNoExtractUi"
-                    android:inputType="textMultiLine|textNoSuggestions"
-                    android:padding="8dp"
-                    android:scrollbars="none"
-                    android:textSize="14sp"/>
-
-            </LinearLayout>
+                android:background="@null"
+                android:fontFamily="monospace"
+                android:gravity="top|start"
+                android:hint="여기에 텍스트를 입력하세요..."
+                android:imeOptions="flagNoExtractUi"
+                android:inputType="textMultiLine|textNoSuggestions"
+                android:padding="8dp"
+                android:scrollbars="none"
+                android:textSize="14sp"/>
 
         </ScrollView>
 

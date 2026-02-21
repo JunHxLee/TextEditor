@@ -6,18 +6,22 @@ import android.content.SharedPreferences;
 import android.graphics.Typeface;
 import android.net.Uri;
 import android.os.Bundle;
+import android.provider.OpenableColumns;
+import android.database.Cursor;
 import android.text.Editable;
+import android.text.SpannableString;
+import android.text.Spanned;
 import android.text.TextWatcher;
+import android.text.style.BackgroundColorSpan;
+import android.view.KeyEvent;
 import android.view.Menu;
 import android.view.MenuItem;
 import android.view.View;
-import android.widget.HorizontalScrollView;
-import android.widget.TextView;
+import android.view.inputmethod.EditorInfo;
 import android.widget.Toast;
 
 import androidx.activity.result.ActivityResultLauncher;
 import androidx.activity.result.contract.ActivityResultContracts;
-import androidx.appcompat.app.AlertDialog;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.appcompat.app.AppCompatDelegate;
 
@@ -31,6 +35,8 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.io.OutputStream;
+import java.util.ArrayList;
+import java.util.List;
 
 public class MainActivity extends AppCompatActivity {
 
@@ -44,6 +50,11 @@ public class MainActivity extends AppCompatActivity {
     private int currentFontSize = 14;
     private boolean isDarkMode = false;
     private boolean isWordWrap = true;
+
+    // 찾기/바꾸기 상태
+    private List<Integer> findResults = new ArrayList<>();
+    private int findCurrentIndex = -1;
+    private boolean isFindReplaceMode = false; // false=찾기만, true=찾기+바꾸기
 
     private static final int FONT_SIZE_MIN = 10;
     private static final int FONT_SIZE_MAX = 30;
@@ -81,6 +92,7 @@ public class MainActivity extends AppCompatActivity {
         setSupportActionBar(binding.toolbar);
 
         setupEditor();
+        setupFindReplace();
         applySettings();
 
         // 외부에서 파일 열기 인텐트 처리
@@ -110,19 +122,26 @@ public class MainActivity extends AppCompatActivity {
         highlighter = new SyntaxHighlighter(isDarkMode);
         highlighter.attachToEditText(binding.editText);
 
-        // 줄 번호 동기화
         binding.editText.addTextChangedListener(new TextWatcher() {
             @Override public void beforeTextChanged(CharSequence s, int start, int count, int after) {}
             @Override public void onTextChanged(CharSequence s, int start, int before, int count) {}
             @Override
             public void afterTextChanged(Editable s) {
                 updateLineNumbers();
+                updateStatusBar();
                 if (!isModified) {
                     isModified = true;
                     updateTitle();
                 }
+                // 찾기 바가 열려있으면 결과 갱신
+                if (binding.findReplaceBar.getVisibility() == View.VISIBLE) {
+                    performFind(binding.findInput.getText().toString(), false);
+                }
             }
         });
+
+        // 커서 위치 변경 감지
+        binding.editText.setOnClickListener(v -> updateStatusBar());
 
         // 스크롤 동기화
         binding.scrollView.setOnScrollChangeListener((v, scrollX, scrollY, oldScrollX, oldScrollY) -> {
@@ -132,24 +151,47 @@ public class MainActivity extends AppCompatActivity {
         binding.editText.setTypeface(Typeface.MONOSPACE);
     }
 
+    private void setupFindReplace() {
+        // 찾기 입력창
+        binding.findInput.addTextChangedListener(new TextWatcher() {
+            @Override public void beforeTextChanged(CharSequence s, int start, int count, int after) {}
+            @Override public void onTextChanged(CharSequence s, int start, int before, int count) {}
+            @Override
+            public void afterTextChanged(Editable s) {
+                performFind(s.toString(), false);
+            }
+        });
+
+        binding.findInput.setOnEditorActionListener((v, actionId, event) -> {
+            if (actionId == EditorInfo.IME_ACTION_SEARCH ||
+                (event != null && event.getKeyCode() == KeyEvent.KEYCODE_ENTER)) {
+                findNext();
+                return true;
+            }
+            return false;
+        });
+
+        binding.findNextBtn.setOnClickListener(v -> findNext());
+        binding.findPrevBtn.setOnClickListener(v -> findPrev());
+        binding.findCloseBtn.setOnClickListener(v -> closeFindBar());
+
+        binding.replaceBtn.setOnClickListener(v -> replaceCurrentMatch());
+        binding.replaceAllBtn.setOnClickListener(v -> replaceAllMatches());
+    }
+
     private void applySettings() {
-        // 다크모드
         AppCompatDelegate.setDefaultNightMode(
             isDarkMode ? AppCompatDelegate.MODE_NIGHT_YES : AppCompatDelegate.MODE_NIGHT_NO
         );
         highlighter.setDarkMode(isDarkMode);
 
-        // 폰트 크기
         binding.editText.setTextSize(currentFontSize);
         binding.lineNumbers.setTextSize(currentFontSize);
 
-        // 워드랩
         if (isWordWrap) {
             binding.editText.setHorizontallyScrolling(false);
-            
         } else {
             binding.editText.setHorizontallyScrolling(true);
-            
         }
 
         updateLineNumbers();
@@ -172,9 +214,8 @@ public class MainActivity extends AppCompatActivity {
             getSupportActionBar().setTitle(title);
         }
 
-        // 파일 타입 배지
         SyntaxHighlighter.FileType ft = highlighter.getFileType();
-        String badge = "";
+        String badge;
         switch (ft) {
             case JSON: badge = "JSON"; break;
             case XML:  badge = "XML";  break;
@@ -182,24 +223,177 @@ public class MainActivity extends AppCompatActivity {
         }
         binding.fileTypeBadge.setText(badge);
 
-        // 상태바 업데이트
         updateStatusBar();
     }
 
     private void updateStatusBar() {
         String text = binding.editText.getText().toString();
-        int lines = text.isEmpty() ? 1 : text.split("\n", -1).length;
+        int totalLines = text.isEmpty() ? 1 : text.split("\n", -1).length;
         int chars = text.length();
-        binding.statusBar.setText("줄: " + lines + "  문자: " + chars);
+
+        // 커서 위치 계산
+        int cursorPos = binding.editText.getSelectionStart();
+        int line = 1;
+        int col = 1;
+        if (cursorPos >= 0 && cursorPos <= text.length()) {
+            String before = text.substring(0, cursorPos);
+            String[] beforeLines = before.split("\n", -1);
+            line = beforeLines.length;
+            col = beforeLines[beforeLines.length - 1].length() + 1;
+        }
+
+        binding.statusBar.setText("줄: " + line + "/" + totalLines + "  열: " + col + "  문자: " + chars);
+    }
+
+    // ===== 찾기/바꾸기 =====
+
+    private void openFindBar(boolean withReplace) {
+        isFindReplaceMode = withReplace;
+        binding.findReplaceBar.setVisibility(View.VISIBLE);
+        binding.replaceRow.setVisibility(withReplace ? View.VISIBLE : View.GONE);
+        binding.findInput.requestFocus();
+        String query = binding.findInput.getText().toString();
+        if (!query.isEmpty()) {
+            performFind(query, false);
+        }
+    }
+
+    private void closeFindBar() {
+        binding.findReplaceBar.setVisibility(View.GONE);
+        clearFindHighlights();
+        findResults.clear();
+        findCurrentIndex = -1;
+        binding.findMatchCount.setText("");
+    }
+
+    private void performFind(String query, boolean scrollToCurrent) {
+        clearFindHighlights();
+        findResults.clear();
+        findCurrentIndex = -1;
+
+        if (query.isEmpty()) {
+            binding.findMatchCount.setText("");
+            return;
+        }
+
+        String text = binding.editText.getText().toString();
+        String lowerText = text.toLowerCase();
+        String lowerQuery = query.toLowerCase();
+
+        int index = 0;
+        while ((index = lowerText.indexOf(lowerQuery, index)) != -1) {
+            findResults.add(index);
+            index += lowerQuery.length();
+        }
+
+        if (!findResults.isEmpty()) {
+            findCurrentIndex = 0;
+            highlightMatches(query.length());
+            if (scrollToCurrent) scrollToMatch(findCurrentIndex);
+        }
+
+        updateFindCount();
+    }
+
+    private void highlightMatches(int queryLen) {
+        Editable editable = binding.editText.getText();
+        // 기존 하이라이트 제거
+        BackgroundColorSpan[] spans = editable.getSpans(0, editable.length(), BackgroundColorSpan.class);
+        for (BackgroundColorSpan span : spans) editable.removeSpan(span);
+
+        for (int i = 0; i < findResults.size(); i++) {
+            int start = findResults.get(i);
+            int end = start + queryLen;
+            int color = (i == findCurrentIndex) ? 0xFFFF9800 : 0x44FFEB3B; // 현재=주황, 나머지=노랑
+            editable.setSpan(new BackgroundColorSpan(color), start, end, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+        }
+    }
+
+    private void clearFindHighlights() {
+        Editable editable = binding.editText.getText();
+        BackgroundColorSpan[] spans = editable.getSpans(0, editable.length(), BackgroundColorSpan.class);
+        for (BackgroundColorSpan span : spans) editable.removeSpan(span);
+    }
+
+    private void findNext() {
+        if (findResults.isEmpty()) return;
+        findCurrentIndex = (findCurrentIndex + 1) % findResults.size();
+        int queryLen = binding.findInput.getText().length();
+        highlightMatches(queryLen);
+        scrollToMatch(findCurrentIndex);
+        updateFindCount();
+    }
+
+    private void findPrev() {
+        if (findResults.isEmpty()) return;
+        findCurrentIndex = (findCurrentIndex - 1 + findResults.size()) % findResults.size();
+        int queryLen = binding.findInput.getText().length();
+        highlightMatches(queryLen);
+        scrollToMatch(findCurrentIndex);
+        updateFindCount();
+    }
+
+    private void scrollToMatch(int idx) {
+        if (idx < 0 || idx >= findResults.size()) return;
+        int pos = findResults.get(idx);
+        binding.editText.setSelection(pos);
+        // EditText의 레이아웃을 통해 y좌표 계산 후 스크롤
+        binding.editText.post(() -> {
+            android.text.Layout layout = binding.editText.getLayout();
+            if (layout != null) {
+                int line = layout.getLineForOffset(pos);
+                int y = layout.getLineTop(line);
+                binding.scrollView.smoothScrollTo(0, y);
+            }
+        });
+    }
+
+    private void updateFindCount() {
+        if (findResults.isEmpty()) {
+            binding.findMatchCount.setText("없음");
+        } else {
+            binding.findMatchCount.setText((findCurrentIndex + 1) + "/" + findResults.size());
+        }
+    }
+
+    private void replaceCurrentMatch() {
+        if (findCurrentIndex < 0 || findCurrentIndex >= findResults.size()) return;
+        String query = binding.findInput.getText().toString();
+        String replacement = binding.replaceInput.getText().toString();
+        if (query.isEmpty()) return;
+
+        int start = findResults.get(findCurrentIndex);
+        int end = start + query.length();
+        String text = binding.editText.getText().toString();
+
+        if (end > text.length()) return;
+
+        // 대소문자 무시 비교
+        if (!text.substring(start, end).equalsIgnoreCase(query)) return;
+
+        binding.editText.getText().replace(start, end, replacement);
+        performFind(query, true);
+    }
+
+    private void replaceAllMatches() {
+        String query = binding.findInput.getText().toString();
+        String replacement = binding.replaceInput.getText().toString();
+        if (query.isEmpty()) return;
+
+        String text = binding.editText.getText().toString();
+        String newText = text.replaceAll("(?i)" + java.util.regex.Pattern.quote(query),
+                                         java.util.regex.Matcher.quoteReplacement(replacement));
+        int count = findResults.size();
+        binding.editText.setText(newText);
+        Toast.makeText(this, count + "개 바꿈 완료", Toast.LENGTH_SHORT).show();
+        performFind(query, false);
     }
 
     // ===== 파일 작업 =====
 
     private void newFile() {
         if (isModified) {
-            showSaveDialog(() -> {
-                clearEditor();
-            });
+            showSaveDialog(() -> clearEditor());
         } else {
             clearEditor();
         }
@@ -247,7 +441,6 @@ public class MainActivity extends AppCompatActivity {
             currentFileUri = uri;
             currentFileName = getFileName(uri);
 
-            // 파일 타입 감지
             SyntaxHighlighter.FileType ft = SyntaxHighlighter.detectFileType(currentFileName);
             highlighter.setFileType(ft);
 
@@ -255,11 +448,9 @@ public class MainActivity extends AppCompatActivity {
             binding.editText.setText(sb.toString());
             isModified = false;
 
-            // 하이라이팅 즉시 적용
             Editable editable = binding.editText.getText();
             if (editable != null) highlighter.highlight(editable);
 
-            // JSON 유효성 검사
             if (ft == SyntaxHighlighter.FileType.JSON) {
                 FileValidator.ValidationResult r = FileValidator.validateJson(sb.toString());
                 binding.validationBar.setVisibility(View.VISIBLE);
@@ -313,11 +504,32 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
+    /**
+     * SAF URI에서 실제 파일명을 추출한다.
+     * ContentResolver를 통해 OpenableColumns.DISPLAY_NAME을 조회하고,
+     * 실패 시 URI 마지막 경로 세그먼트에서 추출한다.
+     */
     private String getFileName(Uri uri) {
+        // SAF URI의 경우 ContentResolver로 파일명 조회
+        try (Cursor cursor = getContentResolver().query(uri, null, null, null, null)) {
+            if (cursor != null && cursor.moveToFirst()) {
+                int nameIndex = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME);
+                if (nameIndex >= 0) {
+                    String name = cursor.getString(nameIndex);
+                    if (name != null && !name.isEmpty()) return name;
+                }
+            }
+        } catch (Exception ignored) {}
+
+        // 폴백: 마지막 경로 세그먼트 파싱
         String path = uri.getLastPathSegment();
         if (path == null) return "unknown";
+        // SAF는 "primary:Downloads/file.json" 형태일 수 있음
         int slash = path.lastIndexOf('/');
-        return slash >= 0 ? path.substring(slash + 1) : path;
+        if (slash >= 0) path = path.substring(slash + 1);
+        int colon = path.lastIndexOf(':');
+        if (colon >= 0) path = path.substring(colon + 1);
+        return path.isEmpty() ? "unknown" : path;
     }
 
     // ===== 다이얼로그 =====
@@ -401,27 +613,33 @@ public class MainActivity extends AppCompatActivity {
     @Override
     public boolean onOptionsItemSelected(MenuItem item) {
         int id = item.getItemId();
-        if (id == R.id.menu_new)        { newFile(); return true; }
-        if (id == R.id.menu_open)       { openFileChooser(); return true; }
-        if (id == R.id.menu_save)       { saveFile(); return true; }
-        if (id == R.id.menu_save_as)    { saveFileAs(); return true; }
-        if (id == R.id.menu_format)     { showFormatDialog(); return true; }
-        if (id == R.id.menu_font_size)  { showFontSizeDialog(); return true; }
-        if (id == R.id.menu_word_wrap)  {
+        if (id == R.id.menu_new)          { newFile(); return true; }
+        if (id == R.id.menu_open)         { openFileChooser(); return true; }
+        if (id == R.id.menu_save)         { saveFile(); return true; }
+        if (id == R.id.menu_save_as)      { saveFileAs(); return true; }
+        if (id == R.id.menu_find)         { openFindBar(false); return true; }
+        if (id == R.id.menu_find_replace) { openFindBar(true); return true; }
+        if (id == R.id.menu_undo)         { binding.editText.onKeyDown(KeyEvent.KEYCODE_Z,
+                                                new KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_Z)); return true; }
+        if (id == R.id.menu_redo)         { binding.editText.onKeyDown(KeyEvent.KEYCODE_Z,
+                                                new KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_Z)); return true; }
+        if (id == R.id.menu_format)       { showFormatDialog(); return true; }
+        if (id == R.id.menu_font_size)    { showFontSizeDialog(); return true; }
+        if (id == R.id.menu_word_wrap)    {
             isWordWrap = !isWordWrap;
             item.setChecked(isWordWrap);
             applySettings();
             saveSettings();
             return true;
         }
-        if (id == R.id.menu_dark_mode)  {
+        if (id == R.id.menu_dark_mode)    {
             isDarkMode = !isDarkMode;
             item.setChecked(isDarkMode);
             saveSettings();
             applySettings();
             return true;
         }
-        if (id == R.id.menu_file_type)  { showFileTypeDialog(); return true; }
+        if (id == R.id.menu_file_type)    { showFileTypeDialog(); return true; }
         return super.onOptionsItemSelected(item);
     }
 
@@ -436,6 +654,11 @@ public class MainActivity extends AppCompatActivity {
 
     @Override
     public void onBackPressed() {
+        // 찾기 바가 열려있으면 먼저 닫기
+        if (binding.findReplaceBar.getVisibility() == View.VISIBLE) {
+            closeFindBar();
+            return;
+        }
         if (isModified) {
             showSaveDialog(() -> finish());
         } else {
