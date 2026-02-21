@@ -10,6 +10,9 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    permissions:
+      issues: write
+      contents: read
 
     steps:
       - name: 저장소 체크아웃
@@ -37,14 +40,29 @@ jobs:
           BUILD_EXIT=${PIPESTATUS[0]}
           if [ $BUILD_EXIT -ne 0 ]; then
             ERROR_MSG=$(tail -200 /tmp/build_output.txt)
-            gh issue create \
-              --repo "${{ github.repository }}" \
-              --title "Build Error Report (Run #${{ github.run_number }})" \
-              --body "## Build Error (exit code: $BUILD_EXIT)
-Event: ${{ github.event_name }}, Branch: ${{ github.ref_name }}
-\`\`\`
-$ERROR_MSG
-\`\`\`" || true
+            python3 - << 'PYEOF'
+import json, urllib.request, os
+token = os.environ['GH_TOKEN']
+repo = "${{ github.repository }}"
+run_num = "${{ github.run_number }}"
+event = "${{ github.event_name }}"
+ref = "${{ github.ref_name }}"
+with open('/tmp/build_output.txt') as f:
+    lines = f.readlines()
+error_text = ''.join(lines[-150:])
+body = f"Build Error\nEvent: {event}, Branch: {ref}\n```\n{error_text}\n```"
+payload = json.dumps({"title": f"Build Error Report (Run #{run_num})", "body": body}).encode()
+req = urllib.request.Request(
+    f"https://api.github.com/repos/{repo}/issues",
+    data=payload,
+    headers={"Authorization": f"token {token}", "Accept": "application/vnd.github.v3+json", "Content-Type": "application/json"}
+)
+try:
+    resp = urllib.request.urlopen(req)
+    print("Issue created:", resp.read().decode()[:200])
+except Exception as e:
+    print("Failed:", e)
+PYEOF
           fi
           exit $BUILD_EXIT
 
