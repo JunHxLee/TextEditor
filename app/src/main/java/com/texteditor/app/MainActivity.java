@@ -83,15 +83,9 @@ public class MainActivity extends AppCompatActivity {
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
-        // setDefaultNightMode은 super.onCreate() 이전에 호출해야
-        // Activity recreate() 루프 없이 올바른 테마가 즉시 적용됨
+        super.onCreate(savedInstanceState);
         prefs = getSharedPreferences("settings", MODE_PRIVATE);
         loadSettings();
-        AppCompatDelegate.setDefaultNightMode(
-            isDarkMode ? AppCompatDelegate.MODE_NIGHT_YES : AppCompatDelegate.MODE_NIGHT_NO
-        );
-
-        super.onCreate(savedInstanceState);
 
         binding = ActivityMainBinding.inflate(getLayoutInflater());
         setContentView(binding.getRoot());
