@@ -29,15 +29,21 @@ jobs:
         run: chmod +x ./gradlew
 
       - name: APK 빌드 (Debug)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set +e
           ./gradlew assembleDebug --stacktrace --no-daemon 2>&1 | tee /tmp/build_output.txt
           BUILD_EXIT=${PIPESTATUS[0]}
           if [ $BUILD_EXIT -ne 0 ]; then
-            echo "## ❌ Build Error (exit code: $BUILD_EXIT)" >> $GITHUB_STEP_SUMMARY
-            echo '```' >> $GITHUB_STEP_SUMMARY
-            tail -150 /tmp/build_output.txt >> $GITHUB_STEP_SUMMARY
-            echo '```' >> $GITHUB_STEP_SUMMARY
+            PR_NUM="${{ github.event.number }}"
+            if [ -n "$PR_NUM" ] && [ "$PR_NUM" != "0" ]; then
+              ERROR_MSG=$(tail -200 /tmp/build_output.txt)
+              gh pr comment "$PR_NUM" --repo "${{ github.repository }}" --body "## ❌ Build Error (exit code: $BUILD_EXIT)
+\`\`\`
+$ERROR_MSG
+\`\`\`" || true
+            fi
           fi
           exit $BUILD_EXIT
 
