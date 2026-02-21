@@ -83,9 +83,15 @@ public class MainActivity extends AppCompatActivity {
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
-        super.onCreate(savedInstanceState);
+        // setDefaultNightMode은 super.onCreate() 이전에 호출해야
+        // Activity recreate() 루프 없이 올바른 테마가 즉시 적용됨
         prefs = getSharedPreferences("settings", MODE_PRIVATE);
         loadSettings();
+        AppCompatDelegate.setDefaultNightMode(
+            isDarkMode ? AppCompatDelegate.MODE_NIGHT_YES : AppCompatDelegate.MODE_NIGHT_NO
+        );
+
+        super.onCreate(savedInstanceState);
 
         binding = ActivityMainBinding.inflate(getLayoutInflater());
         setContentView(binding.getRoot());
@@ -180,9 +186,6 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void applySettings() {
-        AppCompatDelegate.setDefaultNightMode(
-            isDarkMode ? AppCompatDelegate.MODE_NIGHT_YES : AppCompatDelegate.MODE_NIGHT_NO
-        );
         highlighter.setDarkMode(isDarkMode);
 
         binding.editText.setTextSize(currentFontSize);
@@ -634,9 +637,10 @@ public class MainActivity extends AppCompatActivity {
         }
         if (id == R.id.menu_dark_mode)    {
             isDarkMode = !isDarkMode;
-            item.setChecked(isDarkMode);
             saveSettings();
-            applySettings();
+            AppCompatDelegate.setDefaultNightMode(
+                isDarkMode ? AppCompatDelegate.MODE_NIGHT_YES : AppCompatDelegate.MODE_NIGHT_NO
+            );
             return true;
         }
         if (id == R.id.menu_file_type)    { showFileTypeDialog(); return true; }
