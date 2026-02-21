@@ -12,7 +12,6 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      issues: write
 
     steps:
       - name: 저장소 체크아웃
@@ -32,61 +31,10 @@ jobs:
         run: chmod +x ./gradlew
 
       - name: APK 빌드 (Debug)
-        run: |
-          ./gradlew assembleDebug --stacktrace --no-daemon 2>&1 | tee /tmp/build_output.txt
-          exit ${PIPESTATUS[0]}
-
-      - name: 빌드 로그 업로드
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: build-log
-          path: /tmp/build_output.txt
-          retention-days: 7
-
-      - name: 빌드 실패 시 GitHub Issue 생성
-        if: failure()
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          REPO: ${{ github.repository }}
-          RUN_NUM: ${{ github.run_number }}
-          EVENT: ${{ github.event_name }}
-          REF_NAME: ${{ github.ref_name }}
-        run: |
-          python3 << 'PYEOF'
-          import json, urllib.request, os
-          token = os.environ['GH_TOKEN']
-          repo = os.environ['REPO']
-          run_num = os.environ['RUN_NUM']
-          event = os.environ['EVENT']
-          ref = os.environ['REF_NAME']
-          try:
-              with open('/tmp/build_output.txt') as f:
-                  lines = f.readlines()
-              error_text = ''.join(lines[-200:])
-          except Exception as e:
-              error_text = 'Could not read build output: ' + str(e)
-          title = 'Build Error Report (Run #{})'.format(run_num)
-          body = 'Build failed. Event: {}, Branch: {}\n\n```\n{}\n```'.format(event, ref, error_text)
-          payload = json.dumps({'title': title, 'body': body}).encode()
-          req = urllib.request.Request(
-              'https://api.github.com/repos/{}/issues'.format(repo),
-              data=payload,
-              headers={
-                  'Authorization': 'token ' + token,
-                  'Accept': 'application/vnd.github.v3+json',
-                  'Content-Type': 'application/json'
-              }
-          )
-          try:
-              resp = urllib.request.urlopen(req)
-              print('Issue created:', resp.read().decode()[:500])
-          except Exception as e:
-              print('Failed to create issue:', e)
-          PYEOF
+        run: ./gradlew assembleDebug
 
       - name: APK 빌드 (Release)
-        run: ./gradlew assembleRelease --stacktrace --no-daemon
+        run: ./gradlew assembleRelease
 
       - name: Debug APK 업로드
         uses: actions/upload-artifact@v4
