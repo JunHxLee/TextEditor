@@ -29,7 +29,17 @@ jobs:
         run: chmod +x ./gradlew
 
       - name: APK 빌드 (Debug)
-        run: ./gradlew assembleDebug --stacktrace --no-daemon
+        run: |
+          set +e
+          ./gradlew assembleDebug --stacktrace --no-daemon 2>&1 | tee /tmp/build_output.txt
+          BUILD_EXIT=${PIPESTATUS[0]}
+          if [ $BUILD_EXIT -ne 0 ]; then
+            echo "## ❌ Build Error (exit code: $BUILD_EXIT)" >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            tail -150 /tmp/build_output.txt >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+          fi
+          exit $BUILD_EXIT
 
       - name: APK 빌드 (Release)
         run: ./gradlew assembleRelease --stacktrace --no-daemon
